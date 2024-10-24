@@ -1,0 +1,19 @@
+{
+    "name": "GrandO.Generic.Editor",
+    "rootNamespace": "GrandO",
+    "references": [
+        "GUID:111ce4c2bcb074078b74c87eb6054a0a",
+        "GUID:69448af7b92c7f342b298e06a37122aa"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

@@ -1,0 +1,16 @@
+{
+	"name": "com.grando.generic",
+	"version": "0.1.0",
+	"displayName": "Grand O - Generic",
+	"description": "This is a generic utilities for Grand O game project. feel free to use it if you found it useful.",
+	"unity": "6000.0",
+	"author": {
+		"name": "GrandO",
+		"email": "grandw49536@gmail.com",
+		"url": ""
+	},
+	"dependencies": {
+		"com.unity.nuget.newtonsoft-json": "3.2.1",
+		"com.unity.addressables": "2.0.8"
+	}
+}
