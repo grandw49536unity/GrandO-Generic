@@ -70,19 +70,14 @@ namespace GrandO.Generic.Editor {
 			return _folderPath.Split("/");
 		}
 
-		public static string GetAssetPath(string _realPath) { 
-			return _realPath.Replace(Application.dataPath, "Assets");
-			if (_realPath.StartsWith(Application.dataPath))
-				return _realPath.Replace(Application.dataPath, "Assets");
-			else
-				return _realPath;
+		public static string GetAssetPath(string _realPath) {
+			if (_realPath.StartsWith(Application.dataPath)) return $"Assets{_realPath.Substring(Application.dataPath.Length)}";
+			return _realPath;
 		}
-		
+
 		public static string GetRealPath(string _assetPath) {
-			if (_assetPath.StartsWith("Assets"))
-				return _assetPath.Replace("Assets", Application.dataPath);
-			else
-				return _assetPath;
+			if (_assetPath.StartsWith("Assets")) return $"{Application.dataPath}{_assetPath.Substring(6)}";
+			return _assetPath;
 		}
 
 		public static T[] LoadAllDataFromFolder<T>(string _folderPath, string _filter = "") where T : UnityEngine.Object {
