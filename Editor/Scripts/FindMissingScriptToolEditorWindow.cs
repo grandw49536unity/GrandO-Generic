@@ -3,14 +3,14 @@ using UnityEngine;
 
 namespace GrandO.Generic.Editor {
 
-    public class FindMissingScriptsRecursivelyAndRemove : EditorWindow {
+    public class FindMissingScriptToolEditorWindow : EditorWindow {
         private static int _goCount;
         private static int _missingCount;
 
         private static bool _bHaveRun;
 
-        [MenuItem("Window/FindMissingScriptsRecursivelyAndRemove")]
-        public static void ShowWindow() { GetWindow(typeof(FindMissingScriptsRecursivelyAndRemove)); }
+        [MenuItem("Window/Grand O/Find Missing Scripts Tool")]
+        public static void ShowWindow() { GetWindow(typeof(FindMissingScriptToolEditorWindow)); }
 
         public void OnGUI() {
             if (GUILayout.Button("Remove Missing Scripts in selected GameObjects")) {
