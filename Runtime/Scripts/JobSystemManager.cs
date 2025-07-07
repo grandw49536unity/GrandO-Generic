@@ -22,10 +22,31 @@ namespace GrandO.Generic {
 		}
 		
 		private List<JobHandle> jobHandles;
+		private List<JobHandle> afterJobHandles;
 		private List<JobHandle> lateJobHandles;
+		
+		private System.Action onJobComplete;
+		private System.Action onAfterJobComplete;
+		private System.Action onLateJobComplete;
 		
 		public void ScheduleJobComplete(JobHandle _jobHandle) { 
 			jobHandles.Add(_jobHandle);
+		}
+		
+		public void RegisterJobCompleteEvent(System.Action _action) {
+			onJobComplete += _action;
+		}
+		
+		public void RegisterAfterJobCompleteEvent(System.Action _action) {
+			onAfterJobComplete += _action;
+		}
+		
+		public void RegisterLateJobCompleteEvent(System.Action _action) {
+			onLateJobComplete += _action;
+		}
+		
+		public void ScheduleAfterJobComplete(JobHandle _jobHandle) { 
+			afterJobHandles.Add(_jobHandle);
 		}
 
 		public void ScheduleLateJobComplete(JobHandle _jobHandle) { 
@@ -34,6 +55,7 @@ namespace GrandO.Generic {
 
 		private void Initialize() {
 			jobHandles = new List<JobHandle>();
+			afterJobHandles = new List<JobHandle>();
 			lateJobHandles = new List<JobHandle>();
 		}
 
@@ -42,6 +64,14 @@ namespace GrandO.Generic {
 				jobHandles[i].Complete();
 			}
 			jobHandles.Clear();
+			onJobComplete?.Invoke();
+			onJobComplete = null;
+			for (int i = 0; i < afterJobHandles.Count; ++i) {
+				afterJobHandles[i].Complete();
+			}
+			afterJobHandles.Clear();
+			onAfterJobComplete?.Invoke();
+			onAfterJobComplete = null;
 		}
 
 		private void LateUpdate() {
@@ -49,6 +79,8 @@ namespace GrandO.Generic {
 				lateJobHandles[i].Complete();
 			}
 			lateJobHandles.Clear();
+			onLateJobComplete?.Invoke();
+			onLateJobComplete = null;
 		}
 
 	}
