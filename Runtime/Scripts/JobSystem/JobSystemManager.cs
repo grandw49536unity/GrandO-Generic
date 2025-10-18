@@ -6,7 +6,7 @@ using UnityEngine.Jobs;
 using Unity.Collections;
 using Unity.Jobs;
 
-namespace GrandO.Generic {
+namespace GrandO.Generic.JobSystem {
 
 	[DefaultExecutionOrder(1000)]
 	public partial class JobSystemManager : MonoBehaviour {
@@ -34,12 +34,6 @@ namespace GrandO.Generic {
 		private System.Action onJobComplete;
 		private System.Action onAfterJobComplete;
 		private System.Action onLateJobComplete;
-
-		// private bool isTransformListUpdated;
-		// private List<Transform> transformList;
-		// private List<TransformJobData> transformJobDataList;
-		// private NativeArray<TransformJobData> transformJobDataArray;
-		// private TransformAccessArray transformAccessArray;
 		
 		public void ScheduleJobComplete(JobHandle _jobHandle) { 
 			jobHandles.Add(_jobHandle);
@@ -71,8 +65,6 @@ namespace GrandO.Generic {
 			jobHandles = new List<JobHandle>(jobCapacity);
 			afterJobHandles = new List<JobHandle>(jobCapacity);
 			lateJobHandles = new List<JobHandle>(jobCapacity);
-			// transformList = new List<Transform>(jobCapacity*2);
-			// transformJobDataList = new List<TransformJobData>(jobCapacity*2);
 		}
 
 		private void Update() { 
@@ -90,12 +82,6 @@ namespace GrandO.Generic {
 		}
 
 		private void LateUpdate() {
-
-			// if (ValidateTransformJob()) {
-			// 	TransformJob transformJob = new TransformJob() { transformJobDataArray = transformJobDataArray};
-			// 	JobHandle transformJobHandle = transformJob.Schedule(transformAccessArray);
-			// 	ScheduleLateJobComplete(transformJobHandle);
-			// }
 
 			for (int i = 0; i < lateJobHandles.Count; i++) lateJobHandles[i].Complete();
 			lateJobHandles.Clear();
