@@ -21,6 +21,7 @@ namespace GrandO.Generic.PathFinding {
         private readonly Dictionary<int, List<(int neighbor, float cost)>> m_neighbors;
 
         public PathGraph(float2[] waypoints, PathSegment[] pathSegments) {
+
             m_waypoints = waypoints;
             m_pathSegments = pathSegments;
 
@@ -41,12 +42,14 @@ namespace GrandO.Generic.PathFinding {
                 m_neighbors[seg.index0].Add((seg.index1, cost));
                 m_neighbors[seg.index1].Add((seg.index0, cost));
             }
+
         }
 
         // ------------------------------
         // 1️⃣ PathFinding by indices
         // ------------------------------
         public int[] PathFinding(int startIndex, int destinationIndex) {
+
             if (startIndex == destinationIndex) return new int[] { startIndex };
 
             bool useAStar = m_waypoints != null;
@@ -99,9 +102,11 @@ namespace GrandO.Generic.PathFinding {
 
             // no path found
             return Array.Empty<int>();
+
         }
 
         private int[] ReconstructPath(Dictionary<int, int> cameFrom, int current) {
+
             var path = new List<int> { current };
             while (cameFrom.ContainsKey(current)) {
                 current = cameFrom[current];
@@ -109,6 +114,7 @@ namespace GrandO.Generic.PathFinding {
             }
             path.Reverse();
             return path.ToArray();
+
         }
 
         private float HeuristicCost(int a, int b) { return math.distance(m_waypoints[a], m_waypoints[b]); }
@@ -117,7 +123,6 @@ namespace GrandO.Generic.PathFinding {
         // 2️⃣ FindNearestPointOnGraph
         // ------------------------------
         public float2 FindNearestPointOnGraph(float2 point, out int index0, out int index1, out float interpolation) {
-            if (m_waypoints == null) throw new InvalidOperationException("FindNearestPointOnGraph only works with position-based graphs.");
 
             float minDistSq = float.MaxValue;
             float2 nearestPoint = default;
@@ -148,16 +153,18 @@ namespace GrandO.Generic.PathFinding {
             }
 
             return nearestPoint;
+
         }
 
         // ------------------------------
         // 3️⃣ PathFinding by positions
         // ------------------------------
         public float2[] PathFinding(float2 startPosition, float2 destinationPosition) {
-            if (m_waypoints == null) throw new InvalidOperationException("Position-based PathFinding only works with waypoints.");
 
             float2 firstPosition = FindNearestPointOnGraph(startPosition, out int firstIndex0, out int firstIndex1, out float firstInterpolation);
             float2 lastPosition = FindNearestPointOnGraph(destinationPosition, out int lastIndex0, out int lastIndex1, out float lastInterpolation);
+            
+            if (firstIndex0 == lastIndex0 && firstIndex1 == lastIndex1) { return new float2[] { firstPosition, lastPosition }; }
 
             if (firstInterpolation > 0.5f) (firstIndex0, firstIndex1) = (firstIndex1, firstIndex0);
             if (lastInterpolation > 0.5f) (lastIndex0, lastIndex1) = (lastIndex1, lastIndex0);
@@ -181,7 +188,9 @@ namespace GrandO.Generic.PathFinding {
             }
 
             return result;
+
         }
+
     }
 
 }

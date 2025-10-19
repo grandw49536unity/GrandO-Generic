@@ -13,6 +13,7 @@ using Unity.Mathematics;
 namespace GrandO.Generic.PathFinding {
 
     public class PathGraphJobified : IDisposable {
+
         // input (managed)
         private readonly float2[] m_waypoints; // may be null
         private readonly PathSegment[] m_pathSegments;
@@ -37,6 +38,7 @@ namespace GrandO.Generic.PathFinding {
         private bool _disposed;
 
         public PathGraphJobified(float2[] waypoints, PathSegment[] pathSegments) {
+
             m_waypoints = waypoints;
             m_pathSegments = pathSegments ?? Array.Empty<PathSegment>();
 
@@ -108,12 +110,17 @@ namespace GrandO.Generic.PathFinding {
             for (int i = 0; i < _nodeCount; i++) _cameFrom[i] = -1;
 
             _disposed = false;
+
         }
 
         // Public GC-free API: caller provides out buffer (managed or NativeArray) and we fill it.
         // outPathNative must have length >= _nodeCount (or at least max expected)
         public void PathFindingInto(int startIndex, int destinationIndex, NativeArray<int> outPathNative, out int outLen) {
-            if (outPathNative.Length < _nodeCount) throw new ArgumentException("outPathNative must have length >= nodeCount");
+
+            if (_nodeCount == 0) {
+                outLen = 0;
+                return;
+            }
 
             var job = new PathfindingReusableJob {
                 nodeCount = _nodeCount, neighborOffsets = _neighborOffsets, neighborIndices = _neighborIndices, neighborCosts = _neighborCosts,
@@ -131,16 +138,23 @@ namespace GrandO.Generic.PathFinding {
             for (int i = 0; i < outLen; i++) outPathNative[i] = _outPathBuffer[i];
 
             job.outPathLen.Dispose();
+
         }
 
         // Position-based pathfinding into NativeArray<float2> outPositionsNative; outLen count of positions written.
         // Caller must allocate outPositionsNative length >= (_nodeCount + 2) to be safe.
         public void PathFindingPositionsInto(float2 startPosition, float2 destPosition, NativeArray<float2> outPositionsNative, out int outLen) {
+
+            if (_nodeCount == 0) {
+                outLen = 0;
+                return;
+            }
+
             // Find nearest points (we'll call FindNearestPointJob with persistent outputs)
-            var nearestOut = new NativeArray<float2>(1, Allocator.Persistent);
-            var index0Out = new NativeArray<int>(1, Allocator.Persistent);
-            var index1Out = new NativeArray<int>(1, Allocator.Persistent);
-            var interpOut = new NativeArray<float>(1, Allocator.Persistent);
+            var nearestOut = new NativeArray<float2>(1, Allocator.TempJob);
+            var index0Out = new NativeArray<int>(1, Allocator.TempJob);
+            var index1Out = new NativeArray<int>(1, Allocator.TempJob);
+            var interpOut = new NativeArray<float>(1, Allocator.TempJob);
 
             var nearestJob = new FindNearestJobReusable {
                 waypoints = _waypointsNative, segments = _segmentsNative, point = startPosition, outPoint = nearestOut,
@@ -167,11 +181,18 @@ namespace GrandO.Generic.PathFinding {
             index1Out.Dispose();
             interpOut.Dispose();
 
+            if (firstIndex0 == lastIndex0 && firstIndex1 == lastIndex1) {
+                outPositionsNative[0] = firstPos;
+                outPositionsNative[1] = lastPos;
+                outLen = 2;
+                return;
+            }
+
             if (firstT > 0.5f) (firstIndex0, firstIndex1) = (firstIndex1, firstIndex0);
             if (lastT > 0.5f) (lastIndex0, lastIndex1) = (lastIndex1, lastIndex0);
 
             // get node index path into a native buffer
-            var tmpPath = new NativeArray<int>(_nodeCount, Allocator.Persistent);
+            var tmpPath = new NativeArray<int>(_nodeCount, Allocator.TempJob);
             int pathLen;
             PathFindingInto(firstIndex0, lastIndex0, tmpPath, out pathLen);
 
@@ -202,11 +223,13 @@ namespace GrandO.Generic.PathFinding {
 
             outLen = resultLen;
             tmpPath.Dispose();
+
         }
 
         // GC-free FindNearest helper job (Burst). Writes outputs into provided NativeArray slots (we used Temp above).
         [BurstCompile]
         private struct FindNearestJobReusable : IJob {
+
             [ReadOnly] public NativeArray<float2> waypoints;
             [ReadOnly] public NativeArray<PathSegment> segments;
             public float2 point;
@@ -256,12 +279,15 @@ namespace GrandO.Generic.PathFinding {
                 outIndex1[0] = bi1;
                 outIndex0[0] = bi0;
                 outT[0] = bt;
+
             }
+
         }
 
         // Reusable pathfinding job that DOES NOT allocate per-run (uses preallocated arrays).
         [BurstCompile]
         private struct PathfindingReusableJob : IJob {
+
             public int nodeCount;
             [ReadOnly] public NativeArray<int> neighborOffsets;
             [ReadOnly] public NativeArray<int> neighborIndices;
@@ -282,6 +308,7 @@ namespace GrandO.Generic.PathFinding {
             public NativeArray<int> outPathLen; // len=1 - temp managed by caller (we used Temp for it in wrapper)
 
             public void Execute() {
+
                 // Guard
                 if (start < 0 || start >= nodeCount || dest < 0 || dest >= nodeCount) {
                     outPathLen[0] = 0;
@@ -347,15 +374,19 @@ namespace GrandO.Generic.PathFinding {
                     (outPath[i], outPath[writeIndex - 1 - i]) = (outPath[writeIndex - 1 - i], outPath[i]);
                 }
                 outPathLen[0] = writeIndex;
+
             }
 
             private float Heuristic(int a, int b) {
+
                 if (!useAStar || waypoints.Length == 0) return 0f;
                 return math.distance(waypoints[a], waypoints[b]);
+
             }
 
             // heap helpers (min-heap by fScore). Uses heapCount[0] as count.
             private void HeapPush(int val) {
+
                 int hc = heapCount[0];
                 heap[hc] = val;
                 heapCount[0] = hc + 1;
@@ -366,9 +397,11 @@ namespace GrandO.Generic.PathFinding {
                     (heap[parent], heap[i]) = (heap[i], heap[parent]);
                     i = parent;
                 }
+
             }
 
             private int HeapPop() {
+
                 int hc = heapCount[0];
                 int res = heap[0];
                 hc--;
@@ -386,11 +419,14 @@ namespace GrandO.Generic.PathFinding {
                     i = smallest;
                 }
                 return res;
+
             }
+
         }
 
         // Dispose
         public void Dispose() {
+
             if (_disposed) return;
             if (_neighborOffsets.IsCreated) _neighborOffsets.Dispose();
             if (_neighborIndices.IsCreated) _neighborIndices.Dispose();
@@ -407,8 +443,9 @@ namespace GrandO.Generic.PathFinding {
             if (_outPathBuffer.IsCreated) _outPathBuffer.Dispose();
 
             _disposed = true;
+
         }
-        
+
     }
 
 }
