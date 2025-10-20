@@ -159,7 +159,33 @@ namespace GrandO.Generic.PathFinding {
         // ------------------------------
         // 3️⃣ PathFinding by positions
         // ------------------------------
-        public float2[] PathFinding(float2 startPosition, float2 destinationPosition) {
+
+        public float2[] PathFindingIntoPosition(int startIndex, int destinationIndex) { 
+            int[] path = PathFinding(startIndex, destinationIndex);
+            float2[] result = new float2[path.Length];
+            for (int i = 0; i < path.Length; i++) {
+                result[i] = m_waypoints[path[i]];
+            }
+            return result;
+        }
+
+        public float2[] PathFindingIntoPosition(float2 startPosition, int destinationIndex) { 
+            float2 firstPosition = FindNearestPointOnGraph(startPosition, out int firstIndex0, out int firstIndex1, out float firstInterpolation);
+            if (firstInterpolation > 0.5f) (firstIndex0, firstIndex1) = (firstIndex1, firstIndex0);
+            int[] path = PathFinding(firstIndex0, destinationIndex);
+            int pathLength = path.Length;
+            bool removeFirst = pathLength >= 2 && path[1] == firstIndex1;
+            int firstDelta = removeFirst ? 1 : 0;
+            int resultLength = pathLength + 1 - firstDelta;
+            float2[] result = new float2[resultLength];
+            result[0] = firstPosition;
+            for (int i = firstDelta; i < path.Length; i++) {
+                result[i + 1 - firstDelta] = m_waypoints[path[i]];
+            }
+            return result;
+        }
+
+        public float2[] PathFindingIntoPosition(float2 startPosition, float2 destinationPosition) {
 
             float2 firstPosition = FindNearestPointOnGraph(startPosition, out int firstIndex0, out int firstIndex1, out float firstInterpolation);
             float2 lastPosition = FindNearestPointOnGraph(destinationPosition, out int lastIndex0, out int lastIndex1, out float lastInterpolation);

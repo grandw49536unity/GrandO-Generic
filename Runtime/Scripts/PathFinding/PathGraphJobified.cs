@@ -115,7 +115,7 @@ namespace GrandO.Generic.PathFinding {
 
         // Public GC-free API: caller provides out buffer (managed or NativeArray) and we fill it.
         // outPathNative must have length >= _nodeCount (or at least max expected)
-        public void PathFindingInto(int startIndex, int destinationIndex, NativeArray<int> outPathNative, out int outLen) {
+        public void PathFinding(int startIndex, int destinationIndex, NativeArray<int> outPathNative, out int outLen) {
 
             if (_nodeCount == 0) {
                 outLen = 0;
@@ -143,7 +143,7 @@ namespace GrandO.Generic.PathFinding {
 
         // Position-based pathfinding into NativeArray<float2> outPositionsNative; outLen count of positions written.
         // Caller must allocate outPositionsNative length >= (_nodeCount + 2) to be safe.
-        public void PathFindingPositionsInto(float2 startPosition, float2 destPosition, NativeArray<float2> outPositionsNative, out int outLen) {
+        public void PathFindingIntoPosition(float2 startPosition, float2 destPosition, NativeArray<float2> outPositionsNative, out int outLen) {
 
             if (_nodeCount == 0) {
                 outLen = 0;
@@ -193,8 +193,7 @@ namespace GrandO.Generic.PathFinding {
 
             // get node index path into a native buffer
             var tmpPath = new NativeArray<int>(_nodeCount, Allocator.TempJob);
-            int pathLen;
-            PathFindingInto(firstIndex0, lastIndex0, tmpPath, out pathLen);
+            PathFinding(firstIndex0, lastIndex0, tmpPath, out int pathLen);
 
             if (pathLen == 0) {
                 // no path: return just start & end
