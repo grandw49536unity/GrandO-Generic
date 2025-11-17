@@ -131,6 +131,19 @@ namespace GrandO.Generic {
 			return _dict.ElementAt(Mathf.Clamp(Mathf.FloorToInt(_normalizedValue * count), 0, count - 1));
 		}
 
+		public static void SetLayerRecursively(this GameObject _gameObject, string _layerName) { 
+			int layer = LayerMask.NameToLayer(_layerName);
+			SetLayerRecursively(_gameObject, layer);
+		}
+
+		public static void SetLayerRecursively(this GameObject _gameObject, int _layer) {
+			if (!_gameObject) return;
+			_gameObject.layer = _layer;
+			foreach (Transform child in _gameObject.transform) {
+				child.gameObject.SetLayerRecursively(_layer);
+			}
+		}
+
 	}
 
 }
