@@ -15,11 +15,17 @@ namespace GrandO.Generic.PathFinding {
     [Serializable]
     public struct PathSegment {
 
-        public int index0;
+        public int startIndex;
         
-        public int index1;
+        public int destinationIndex;
 
         public float cost;
+
+        public bool isBlocked;
+
+        public void SetBlocked(bool _isBlocked) { 
+            isBlocked = _isBlocked;
+        }
 
     }
     
