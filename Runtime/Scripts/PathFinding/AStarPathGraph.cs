@@ -1,335 +1,317 @@
 using System;
 using System.Collections.Generic;
 using Unity.Mathematics;
+using UnityEngine;
 
 namespace GrandO.Generic.PathFinding {
 
     public class AStarPathGraph {
-        // Public data you provided
+        // Public storage (immutable externally after ctor / Refresh)
         public float3[] nodes;
         public PathSegment[] pathSegments;
 
-        // Preallocated results to avoid allocations at runtime
-        public List<int> resultIndices { get; private set; }
+        // Results (kept as Lists to match your API — preallocated to avoid allocations during pathfinding)
+        public List<int> resultNodeIndices { get; private set; }
+        public List<int> resultPathSegmentIndices { get; private set; }
         public List<float3> resultPositions { get; private set; }
 
-        // --- Internal adjacency representation (built in Refresh)
-        // adjacencySegmentIndices stores pathSegment indices; for node i
-        // outgoing path segments are in adjacencySegmentIndices[nodeStartIndices[i] .. nodeStartIndices[i+1]-1]
-        private int[] adjacencySegmentIndices;
-        private int[] nodeStartIndices; // length = nodeCount + 1
+        // Adjacency representation (rebuilt in Refresh)
+        // adjacencyOffsets: length = nodes.Length + 1
+        // adjacencySegmentIndices: contiguous list of segment indices for outgoing segments
+        int[] adjacencyOffsets;
+        int[] adjacencySegmentIndices;
 
-        // --- Per-node arrays used by A* (preallocated)
-        private float[] gScore;
-        private float[] fScore;
-        private int[] parent;           // parent node index in path
-        private int[] heapIndex;        // position in heap (-1 if not in heap)
-        private byte[] closedFlags;     // 0 = open/untouched, 1 = closed
+        // Working arrays (allocated once in ctor; reused without allocation during pathfinding)
+        readonly int nodeCount;
+        readonly int segmentCount;
+        int[] cameFromNode; // parent node for reconstruct
+        int[] cameFromSegment; // path-segment index used to reach node
+        float[] gScore;
+        float[] fScore;
+        int[] heap; // binary heap storing node indices (open set)
+        int heapCount;
+        int[] heapIndex; // maps node -> index in heap or -1 if not in heap
+        int[] visitVersion; // versioning to avoid clearing arrays every run
+        int currentVisitVersion;
 
-        // Binary min-heap of node indices ordered by fScore
-        private int[] openHeap;         // contains node indices
-        private int openHeapSize;
+        // closed set via versioning (we can use visitVersion to mark visited nodes)
+        const int INITIAL_VERSION = 1;
 
-        // Scratch arrays for reconstructing segment-index path
-        // (no allocation during runtime; sized at construction)
-        private int nodeCount;
-        private int segmentCount;
-
-        // Constructor: preallocates arrays used during pathfinding
         public AStarPathGraph(float3[] _nodes, PathSegment[] _pathSegments) {
-            nodes = _nodes ?? throw new ArgumentNullException(nameof(_nodes));
-            pathSegments = _pathSegments ?? throw new ArgumentNullException(nameof(_pathSegments));
+            if (_nodes == null) throw new ArgumentNullException(nameof(_nodes));
+            if (_pathSegments == null) throw new ArgumentNullException(nameof(_pathSegments));
+
+            nodes = _nodes;
+            pathSegments = _pathSegments;
+
             nodeCount = nodes.Length;
             segmentCount = pathSegments.Length;
 
-            // Preallocate results with a reasonable default capacity (will grow only if user forces)
-            resultIndices = new List<int>(64);
-            resultPositions = new List<float3>(64);
+            // Results: reserve capacity to nodeCount to avoid growth allocations during pathfinding
+            resultNodeIndices = new List<int>(math.max(16, nodeCount));
+            resultPathSegmentIndices = new List<int>(math.max(16, nodeCount));
+            resultPositions = new List<float3>(math.max(16, nodeCount));
 
-            // Preallocate per-node arrays
+            // Allocate working arrays (single-time allocations during initialization)
+            cameFromNode = new int[nodeCount];
+            cameFromSegment = new int[nodeCount];
             gScore = new float[nodeCount];
             fScore = new float[nodeCount];
-            parent = new int[nodeCount];
+            heap = new int[nodeCount]; // heap worst-case size = nodeCount
             heapIndex = new int[nodeCount];
-            closedFlags = new byte[nodeCount];
+            visitVersion = new int[nodeCount];
 
-            // Initialize heap arrays
-            openHeap = new int[nodeCount];
-            openHeapSize = 0;
-
-            // Initialize node counts etc. adjacency will be built on Refresh()
-            adjacencySegmentIndices = Array.Empty<int>();
-            nodeStartIndices = new int[nodeCount + 1];
-
-            // initialize default sentinel values
+            // initialize visit versioning and heapIndex to -1
             for (int i = 0; i < nodeCount; i++) {
-                parent[i] = -1;
+                visitVersion[i] = 0;
                 heapIndex[i] = -1;
-                closedFlags[i] = 0;
+                cameFromNode[i] = -1;
+                cameFromSegment[i] = -1;
                 gScore[i] = float.MaxValue;
                 fScore[i] = float.MaxValue;
             }
 
-            // Build adjacency representation initially
+            currentVisitVersion = INITIAL_VERSION;
+
+            // Build adjacency structures initially
             Refresh();
         }
 
         /// <summary>
-        /// Call after you change any PathSegment.isBlocked via SetBlocked.
-        /// This will rebuild the adjacency lists. It is allowed to allocate here.
+        /// Rebuild adjacency arrays based on current pathSegments' isBlocked flags.
+        /// This function may allocate (allowed). After this is called, pathfinding remains GC-free.
         /// </summary>
         public void Refresh() {
-            // Count outgoing segments per node (only non-blocked segments included)
-            int[] counts = new int[nodeCount];
+            // Count outgoing segments per node (for non-blocked segments)
+            int[] outCount = new int[nodeCount];
+            int total = 0;
             for (int i = 0; i < segmentCount; i++) {
-                var seg = pathSegments[i];
-                if (seg.isBlocked) continue;
-                if (seg.startIndex < 0 || seg.startIndex >= nodeCount) continue;
-                counts[seg.startIndex]++;
+                var s = pathSegments[i];
+                if (s.isBlocked) continue;
+                if (s.startIndex < 0 || s.startIndex >= nodeCount) continue;
+                // valid one-way seg
+                outCount[s.startIndex]++;
+                total++;
             }
 
-            // Build nodeStartIndices via prefix-sum
-            nodeStartIndices = new int[nodeCount + 1];
-            int running = 0;
+            adjacencyOffsets = new int[nodeCount + 1];
+            adjacencySegmentIndices = new int[total];
+
+            // prefix sums to compute offsets
+            int acc = 0;
             for (int i = 0; i < nodeCount; i++) {
-                nodeStartIndices[i] = running;
-                running += counts[i];
+                adjacencyOffsets[i] = acc;
+                acc += outCount[i];
             }
-            nodeStartIndices[nodeCount] = running;
+            adjacencyOffsets[nodeCount] = acc;
 
-            // Allocate adjacencySegmentIndices with exact size
-            adjacencySegmentIndices = new int[running];
+            // reuse outCount as a cursor to fill adjacencySegmentIndices
+            for (int i = 0; i < nodeCount; i++) outCount[i] = 0;
 
-            // Temp write cursor (reuse counts array for cursor)
-            for (int i = 0; i < nodeCount; i++) counts[i] = 0;
-
-            // Fill adjacencySegmentIndices with path segment indices
             for (int i = 0; i < segmentCount; i++) {
-                var seg = pathSegments[i];
-                if (seg.isBlocked) continue;
-                int s = seg.startIndex;
-                if (s < 0 || s >= nodeCount) continue;
-                int writePos = nodeStartIndices[s] + counts[s];
-                adjacencySegmentIndices[writePos] = i; // store segment index
-                counts[s]++;
+                var s = pathSegments[i];
+                if (s.isBlocked) continue;
+                int start = s.startIndex;
+                if (start < 0 || start >= nodeCount) continue;
+                int writePos = adjacencyOffsets[start] + outCount[start];
+                adjacencySegmentIndices[writePos] = i;
+                outCount[start]++;
             }
 
-            // Clear per-node search arrays (safe to do once here)
-            for (int i = 0; i < nodeCount; i++) {
-                parent[i] = -1;
-                heapIndex[i] = -1;
-                closedFlags[i] = 0;
-                gScore[i] = float.MaxValue;
-                fScore[i] = float.MaxValue;
+            // Note: Refresh allocated adjacency arrays but pathfinding will reuse them without allocation.
+        }
+
+        // ---------- GC-FREE A* PATHFINDING OPERATION ----------
+        // This method is GC-free: it does not create ANY managed objects or call Any methods that allocate.
+        // Caller must ensure startNodeIndex and destinationNodeIndex are valid.
+        public void CalculatePathFindingSequence(int startNodeIndex, int destinationNodeIndex) {
+            // Clear result lists (no capacity shrink)
+            resultNodeIndices.Clear();
+            resultPathSegmentIndices.Clear();
+
+            if (startNodeIndex < 0 || destinationNodeIndex < 0 || startNodeIndex >= nodeCount || destinationNodeIndex >= nodeCount) {
+                return;
             }
-            openHeapSize = 0;
-        }
 
-        // ---------- Heap helpers (min-heap by fScore) ----------
-        private void HeapPush(int nodeIdx) {
-            int pos = openHeapSize;
-            openHeap[openHeapSize++] = nodeIdx;
-            heapIndex[nodeIdx] = pos;
-            SiftUp(pos);
-        }
-
-        private int HeapPop() {
-            if (openHeapSize == 0) return -1;
-            int ret = openHeap[0];
-            openHeapSize--;
-            if (openHeapSize > 0) {
-                openHeap[0] = openHeap[openHeapSize];
-                heapIndex[openHeap[0]] = 0;
-                SiftDown(0);
-            }
-            heapIndex[ret] = -1;
-            return ret;
-        }
-
-        private void SiftUp(int pos) {
-            int node = openHeap[pos];
-            float nodeF = fScore[node];
-            while (pos > 0) {
-                int parentPos = (pos - 1) >> 1;
-                int parentNode = openHeap[parentPos];
-                if (fScore[parentNode] <= nodeF) break;
-                // swap
-                openHeap[pos] = parentNode;
-                heapIndex[parentNode] = pos;
-                pos = parentPos;
-            }
-            openHeap[pos] = node;
-            heapIndex[node] = pos;
-        }
-
-        private void SiftDown(int pos) {
-            int node = openHeap[pos];
-            float nodeF = fScore[node];
-            int half = openHeapSize >> 1;
-            while (pos < half) {
-                int left = (pos << 1) + 1;
-                int right = left + 1;
-                int smallest = left;
-                int smallestNode = openHeap[left];
-                if (right < openHeapSize) {
-                    int rightNode = openHeap[right];
-                    if (fScore[rightNode] < fScore[smallestNode]) {
-                        smallest = right;
-                        smallestNode = rightNode;
-                    }
-                }
-                if (fScore[smallestNode] >= nodeF) break;
-                openHeap[pos] = smallestNode;
-                heapIndex[smallestNode] = pos;
-                pos = smallest;
-            }
-            openHeap[pos] = node;
-            heapIndex[node] = pos;
-        }
-
-        // ---------- A* (node indices) ----------
-        /// <summary>
-        /// Calculates node index sequence from startNodeIndex to destinationNodeIndex.
-        /// Result stored in resultIndices (cleared and reused) and returned.
-        /// This method is GC-free if resultIndices capacity is sufficient.
-        /// </summary>
-        public List<int> CalculateNodeSequence(int startNodeIndex, int destinationNodeIndex) {
-            resultIndices.Clear();
-
-            if (startNodeIndex < 0 || startNodeIndex >= nodeCount) return resultIndices;
-            if (destinationNodeIndex < 0 || destinationNodeIndex >= nodeCount) return resultIndices;
+            // If same node
             if (startNodeIndex == destinationNodeIndex) {
-                resultIndices.Add(startNodeIndex);
-                return resultIndices;
+                resultNodeIndices.Add(startNodeIndex);
+                // no segments
+                return;
             }
 
-            // Reset search state arrays for nodes touched
-            // To keep GC-free we reset whole arrays (nodeCount is small 100-300)
-            for (int i = 0; i < nodeCount; i++) {
-                parent[i] = -1;
-                heapIndex[i] = -1;
-                closedFlags[i] = 0;
-                gScore[i] = float.MaxValue;
-                fScore[i] = float.MaxValue;
+            // bump visit version (overflow handling)
+            currentVisitVersion++;
+            if (currentVisitVersion == 0) {
+                // wrap-around guard: reset visitVersion array (allowed, small cost)
+                for (int i = 0; i < nodeCount; i++) visitVersion[i] = 0;
+                currentVisitVersion = INITIAL_VERSION + 1;
             }
-            openHeapSize = 0;
 
-            // initialize start
+            // heap reset
+            heapCount = 0;
+
+            // Initialize start node
             gScore[startNodeIndex] = 0f;
-            float h0 = Heuristic(nodes[startNodeIndex], nodes[destinationNodeIndex]);
-            fScore[startNodeIndex] = h0;
-            HeapPush(startNodeIndex);
+            float hStart = math.distance(nodes[startNodeIndex], nodes[destinationNodeIndex]);
+            fScore[startNodeIndex] = hStart;
+
+            // mark visited (we use visitVersion to mark nodes we've touched this run)
+            visitVersion[startNodeIndex] = currentVisitVersion;
+            cameFromNode[startNodeIndex] = -1;
+            cameFromSegment[startNodeIndex] = -1;
+
+            // push start into open set
+            PushHeap(startNodeIndex);
 
             bool found = false;
 
-            while (openHeapSize > 0) {
-                int current = HeapPop();
+            // Main A* loop
+            while (heapCount > 0) {
+                int current = PopHeap(); // node index with smallest fScore
+
+                // If current is destination: done
                 if (current == destinationNodeIndex) {
                     found = true;
                     break;
                 }
-                closedFlags[current] = 1;
 
-                // For each outgoing path segment from current
-                int start = nodeStartIndices[current];
-                int end = nodeStartIndices[current + 1];
-                for (int ai = start; ai < end; ai++) {
-                    int segIdx = adjacencySegmentIndices[ai];
-                    var seg = pathSegments[segIdx];
-                    // seg.startIndex should equal current; if inconsistent, skip
+                // Iterate outgoing segments of current
+                int startOff = adjacencyOffsets[current];
+                int endOff = adjacencyOffsets[current + 1];
+                for (int ai = startOff; ai < endOff; ai++) {
+                    int segIndex = adjacencySegmentIndices[ai];
+                    var seg = pathSegments[segIndex];
+
+                    // segment may be blocked after Refresh? We built adjacency from non-blocked segments; still safe
                     int neighbor = seg.destinationIndex;
                     if (neighbor < 0 || neighbor >= nodeCount) continue;
-                    if (closedFlags[neighbor] != 0) continue; // already evaluated
 
+                    // tentative g score
                     float tentativeG = gScore[current] + seg.cost;
+
+                    // if neighbor hasn't been seen this run, initialize
+                    if (visitVersion[neighbor] != currentVisitVersion) {
+                        visitVersion[neighbor] = currentVisitVersion;
+                        gScore[neighbor] = float.MaxValue;
+                        fScore[neighbor] = float.MaxValue;
+                        cameFromNode[neighbor] = -1;
+                        cameFromSegment[neighbor] = -1;
+                        heapIndex[neighbor] = -1; // ensure not in heap
+                    }
+
                     if (tentativeG < gScore[neighbor]) {
-                        parent[neighbor] = current;
+                        cameFromNode[neighbor] = current;
+                        cameFromSegment[neighbor] = segIndex;
                         gScore[neighbor] = tentativeG;
-                        float h = Heuristic(nodes[neighbor], nodes[destinationNodeIndex]);
+                        float h = math.distance(nodes[neighbor], nodes[destinationNodeIndex]);
                         fScore[neighbor] = tentativeG + h;
 
-                        int idxInHeap = heapIndex[neighbor];
-                        if (idxInHeap == -1) {
-                            HeapPush(neighbor);
+                        if (heapIndex[neighbor] == -1) {
+                            // not in open set -> push
+                            PushHeap(neighbor);
                         } else {
-                            // update position (sift up or down as needed)
-                            int pos = idxInHeap;
-                            // try sift up first (common)
-                            SiftUp(pos);
-                            SiftDown(pos);
+                            // in open set -> decrease-key: update position in heap
+                            HeapifyUp(heapIndex[neighbor]);
                         }
                     }
                 }
             }
 
+            // Reconstruct path (if found)
             if (!found) {
-                // unreachable -> return empty list
-                return resultIndices;
+                // no path
+                return;
             }
 
-            // reconstruct path from destination to start
-            int cur = destinationNodeIndex;
-            // push into resultIndices reversed
-            while (cur != -1) {
-                resultIndices.Add(cur);
-                if (cur == startNodeIndex) break;
-                cur = parent[cur];
+            // Reconstruct by walking from destination to start.
+            // We'll push into result lists then reverse (List.Reverse is in-place)
+            int cursor = destinationNodeIndex;
+            while (cursor != -1) {
+                // Only nodes that were visited this run should have valid cameFrom
+                resultNodeIndices.Add(cursor);
+                int seg = cameFromSegment[cursor];
+                if (seg >= 0) resultPathSegmentIndices.Add(seg);
+                cursor = cameFromNode[cursor];
             }
-            // currently reversed (destination..start), reverse in-place
-            int li = 0;
-            int ri = resultIndices.Count - 1;
-            while (li < ri) {
-                int tmp = resultIndices[li];
-                resultIndices[li] = resultIndices[ri];
-                resultIndices[ri] = tmp;
-                li++; ri--;
-            }
-            return resultIndices;
+
+            // currently sequences are reversed (dest -> start) so reverse to be start->dest
+            resultNodeIndices.Reverse();
+            resultPathSegmentIndices.Reverse();
+
+            // If the first element in resultPathSegmentIndices corresponds to the edge from start -> next,
+            // it's correct. resultPathSegmentIndices.Count == resultNodeIndices.Count - 1
         }
 
-        /// <summary>
-        /// Returns path as a sequence of path segment indices (matching your spec).
-        /// Uses CalculateNodeSequence internally (GC-free).
-        /// </summary>
-        public List<int> CalculatePathSequence(int startNodeIndex, int destinationNodeIndex) {
-            // Reuse resultIndices list to get node path, then convert to segments
-            // We'll store the final path segment indices in resultIndices as well (clearing first)
-            List<int> nodePath = CalculateNodeSequence(startNodeIndex, destinationNodeIndex);
-            // If unreachable or trivial
-            if (nodePath == null || nodePath.Count < 2) {
-                resultIndices.Clear(); // final result segments empty
-                return resultIndices;
-            }
+        // ---------- helpers: binary min-heap using fScore as priority ----------
+        void PushHeap(int node) {
+            int idx = heapCount++;
+            heap[idx] = node;
+            heapIndex[node] = idx;
+            HeapifyUp(idx);
+        }
 
-            // Convert node path to segment indices.
-            // We'll fill resultIndices with segment indices. Ensure capacity.
-            resultIndices.Clear();
-            for (int i = 0; i < nodePath.Count - 1; i++) {
-                int a = nodePath[i];
-                int b = nodePath[i + 1];
-
-                // find the outgoing pathSegment from a to b (there should be one unblocked).
-                // check adjacency for node a
-                int start = nodeStartIndices[a];
-                int end = nodeStartIndices[a + 1];
-                int foundSeg = -1;
-                for (int ai = start; ai < end; ai++) {
-                    int segIdx = adjacencySegmentIndices[ai];
-                    var seg = pathSegments[segIdx];
-                    if (seg.destinationIndex == b && !seg.isBlocked) {
-                        // Use the first matching (cost preference already enforced by A*)
-                        foundSeg = segIdx;
-                        break;
-                    }
-                }
-                if (foundSeg == -1) {
-                    // This should not happen (A* found the node sequence), but fail-safe:
-                    resultIndices.Clear();
-                    return resultIndices;
-                }
-                resultIndices.Add(foundSeg);
+        int PopHeap() {
+            int top = heap[0];
+            heapCount--;
+            if (heapCount > 0) {
+                heap[0] = heap[heapCount];
+                heapIndex[heap[0]] = 0;
+                HeapifyDown(0);
             }
-            return resultIndices;
+            heapIndex[top] = -1;
+            return top;
+        }
+
+        void SwapHeapNodes(int i, int j) {
+            int ni = heap[i];
+            int nj = heap[j];
+            heap[i] = nj;
+            heap[j] = ni;
+            heapIndex[ni] = j;
+            heapIndex[nj] = i;
+        }
+
+        void HeapifyUp(int i) {
+            while (i > 0) {
+                int parent = (i - 1) >> 1;
+                if (CompareHeapNodes(i, parent) < 0) {
+                    SwapHeapNodes(i, parent);
+                    i = parent;
+                } else
+                    break;
+            }
+        }
+
+        void HeapifyDown(int i) {
+            while (true) {
+                int left = (i << 1) + 1;
+                int right = left + 1;
+                int smallest = i;
+                if (left < heapCount && CompareHeapNodes(left, smallest) < 0) smallest = left;
+                if (right < heapCount && CompareHeapNodes(right, smallest) < 0) smallest = right;
+                if (smallest != i) {
+                    SwapHeapNodes(i, smallest);
+                    i = smallest;
+                } else
+                    break;
+            }
+        }
+
+        // compare by fScore, tie-break by gScore to prefer larger g (closer to goal) or smaller g depending on strategy
+        int CompareHeapNodes(int aIndex, int bIndex) {
+            int aNode = heap[aIndex];
+            int bNode = heap[bIndex];
+            float fa = fScore[aNode];
+            float fb = fScore[bNode];
+            if (fa < fb) return -1;
+            if (fa > fb) return 1;
+            // tie-breaker: smaller gScore preferred
+            float ga = gScore[aNode];
+            float gb = gScore[bNode];
+            if (ga < gb) return -1;
+            if (ga > gb) return 1;
+            return 0;
         }
 
         /// <summary>
@@ -364,8 +346,8 @@ namespace GrandO.Generic.PathFinding {
             }
 
             // Find node sequence between firstNodeIndex0 and lastNodeIndex0
-            CalculateNodeSequence(firstNodeIndex0, lastNodeIndex0);
-            int pathLength = resultIndices.Count;
+            CalculatePathFindingSequence(firstNodeIndex0, lastNodeIndex0);
+            int pathLength = resultNodeIndices.Count;
             if (pathLength == 0) {
                 // unreachable
                 resultPositions.Add(lastPosition);
@@ -373,15 +355,15 @@ namespace GrandO.Generic.PathFinding {
             }
 
             // Determine whether to remove first/last nodes if they are duplicate endpoints of the projected segments
-            bool removeFirst = pathLength >= 2 && resultIndices[1] == firstNodeIndex1;
-            bool removeLast = pathLength >= 2 && resultIndices[^2] == lastNodeIndex1;
+            bool removeFirst = pathLength >= 2 && resultNodeIndices[1] == firstNodeIndex1;
+            bool removeLast = pathLength >= 2 && resultNodeIndices[^2] == lastNodeIndex1;
 
             int firstDelta = removeFirst ? 1 : 0;
             int lastDelta = removeLast ? 1 : 0;
             int resultNodeCount = pathLength + 2 - firstDelta - lastDelta;
 
             for (int i = firstDelta; i < pathLength - lastDelta; i++) {
-                resultPositions.Add(nodes[resultIndices[i]]);
+                resultPositions.Add(nodes[resultNodeIndices[i]]);
             }
             resultPositions.Add(lastPosition);
             return resultPositions;
@@ -432,9 +414,6 @@ namespace GrandO.Generic.PathFinding {
             return nearestPoint;
         }
 
-        // Simple Euclidean heuristic (admissible since segment costs are distances)
-        private static float Heuristic(float3 a, float3 b) {
-            return math.length(a - b);
-        }
     }
+    
 }
