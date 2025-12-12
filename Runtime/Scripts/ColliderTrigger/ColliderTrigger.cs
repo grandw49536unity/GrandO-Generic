@@ -1,3 +1,5 @@
+using System;
+
 using UnityEngine;
 using UnityEngine.Events;
 
@@ -5,21 +7,24 @@ namespace GrandO.Generic {
     
     public class ColliderTrigger : MonoBehaviour {
         
-        public UnityEvent<Collider> onTriggerEnter;
-        public UnityEvent<Collider> onTriggerExit;
-        
-        public void RegisterTrigger(UnityAction<Collider> _onTriggerEnterAction, UnityAction<Collider> _onTriggerExitAction) {
-            onTriggerEnter.AddListener(_onTriggerEnterAction);
-            onTriggerExit.AddListener(_onTriggerExitAction);
+        public event Action<Collider> onTriggerEnter;
+        public event Action<Collider> onTriggerExit;
+
+        public void AddEnterListener(Action<Collider> _onTriggerEnterAction) { 
+            onTriggerEnter += _onTriggerEnterAction;
         }
         
-        public void OnTriggerEnter(Collider other) {
-            onTriggerEnter?.Invoke(other);
+        public void AddExitListener(Action<Collider> _onTriggerExitAction) { 
+            onTriggerExit += _onTriggerExitAction;
         }
-        
-        public void OnTriggerExit(Collider other) {
-            onTriggerExit?.Invoke(other);
+
+        public void RegisterTrigger(Action<Collider> _onTriggerEnterAction, Action<Collider> _onTriggerExitAction) {
+            AddEnterListener(_onTriggerEnterAction);
+            AddExitListener(_onTriggerExitAction);
         }
+
+        private void OnTriggerEnter(Collider other) => onTriggerEnter?.Invoke(other);
+        private void OnTriggerExit(Collider other) => onTriggerExit?.Invoke(other);
         
     }
     
