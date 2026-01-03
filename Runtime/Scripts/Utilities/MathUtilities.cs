@@ -34,8 +34,10 @@ namespace GrandO.Generic {
 		public static float3 ProjectionPointToLine(float3 point, float3 linePointA, float3 linePointB) {
 			float3 ab = linePointB - linePointA;
 			float3 ap = point - linePointA;
-			float t = math.dot(ap, ab) / math.dot(ab, ab);
-			t = math.clamp(t, 0f, 1f); // Remove this to calculate infinite line
+			float lengthSq = math.dot(ab, ab);
+			if (lengthSq < 1e-10f) return point;
+			float t = math.dot(ap, ab) / lengthSq;
+			t = math.clamp(t, 0f, 1f); 
 			return linePointA + t * ab;
 		}
 
@@ -46,8 +48,10 @@ namespace GrandO.Generic {
 		public static float2 ProjectionPointToLine(float2 point, float2 linePointA, float2 linePointB) {
 			float2 ab = linePointB - linePointA;
 			float2 ap = point - linePointA;
-			float t = math.dot(ap, ab) / math.dot(ab, ab);
-			t = math.clamp(t, 0f, 1f); // Remove this to calculate infinite line
+			float lengthSq = math.dot(ab, ab);
+			if (lengthSq < 1e-10f) return point;
+			float t = math.dot(ap, ab) / lengthSq;
+			t = math.clamp(t, 0f, 1f);
 			return linePointA + t * ab;
 		}
 		
