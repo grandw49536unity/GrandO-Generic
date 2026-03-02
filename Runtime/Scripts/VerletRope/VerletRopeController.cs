@@ -20,7 +20,7 @@ namespace GrandO.Generic.VerletRope {
             public float3 prevPosition;
             public bool isKinematic;
             public int kinematicNodeIndex;
-            public RopeNode(float _position, int _kinematicNodeIndex = -1) {
+            public RopeNode(float3 _position, int _kinematicNodeIndex = -1) {
                 position = prevPosition = _position;
                 kinematicNodeIndex = _kinematicNodeIndex;
                 isKinematic = kinematicNodeIndex >= 0;
@@ -43,9 +43,7 @@ namespace GrandO.Generic.VerletRope {
             }
             
         }
-        
-        public LineRenderer lineRenderer;
-        
+
         [Header("Rope Parameters")]
         [Range(0.25f, 4f)] public float ropeTightness = 1f;
         [Range(1, 30)] public int iterationCount = 4;
@@ -58,24 +56,16 @@ namespace GrandO.Generic.VerletRope {
         public RopeEdge[] edges;
 
         private Transform m_transform;
-        private NativeArray<Vector3> m_positions;
         
         private void Start() {
             m_transform = transform;
             for (int i = 0; i < nodes.Length; i++) nodes[i].Initialize();
-            SetupRope();
         }
         
         public void SetupRope(Transform[] _kinematicNodes, RopeNode[] _nodes, RopeEdge[] _edges) {
             kinematicNodes = _kinematicNodes;
             nodes = _nodes;
             edges = _edges;
-            SetupRope();
-        }
-
-        public void SetupRope() {
-            lineRenderer.positionCount = edges.Length * 2;
-            m_positions = new NativeArray<Vector3>(edges.Length * 2, Allocator.Persistent);
         }
 
         public void Update() {
@@ -111,14 +101,6 @@ namespace GrandO.Generic.VerletRope {
                     }
                 }
             }
-            for (int i = 0; i < edges.Length; i++) {
-                RopeEdge edge = edges[i];
-                int nodeIndex0 = edge.nodeIndex0, nodeIndex1 = edge.nodeIndex1;
-                RopeNode node0 = nodes[nodeIndex0], node1 = nodes[nodeIndex1];
-                m_positions[i * 2] = node0.position;
-                m_positions[i * 2 + 1] = node1.position;
-            }
-            lineRenderer.SetPositions(m_positions);
         }
 
 // #if UNITY_EDITOR
