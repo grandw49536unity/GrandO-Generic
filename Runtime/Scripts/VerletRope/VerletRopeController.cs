@@ -14,100 +14,127 @@ namespace GrandO.Generic.VerletRope {
 
     public partial class VerletRopeController : MonoBehaviour {
 
-        public class RopeEdge {
-            public VerletRopeNodeController node0, node1;
-            public float length;
-            public RopeEdge(VerletRopeNodeController _node0, VerletRopeNodeController _node1) {
-                node0 = _node0;
-                node1 = _node1;
-                length = math.distance(node0.position, node1.position);
+        [Serializable]
+        public struct RopeNode {
+            public float3 position;
+            public float3 prevPosition;
+            public bool isKinematic;
+            public int kinematicNodeIndex;
+            public RopeNode(float _position, int _kinematicNodeIndex = -1) {
+                position = prevPosition = _position;
+                kinematicNodeIndex = _kinematicNodeIndex;
+                isKinematic = kinematicNodeIndex >= 0;
+            }
+            public void Initialize() {
+                prevPosition = position;
             }
         }
 
-        public VerletRopeNodeController[] ropeNodes;
-
+        [Serializable]
+        public struct RopeEdge {
+            
+            public int nodeIndex0, nodeIndex1;
+            public float length;
+            
+            public RopeEdge(int _nodeIndex0, int _nodeIndex1, float _length) {
+                nodeIndex0 = _nodeIndex0;
+                nodeIndex1 = _nodeIndex1;
+                length = _length;
+            }
+            
+        }
+        
+        public LineRenderer lineRenderer;
+        
         [Header("Rope Parameters")]
-        [Range(0.25f, 4f)]
-        public float ropeTightness = 1f;
-        public int iterationCount = 4;
+        [Range(0.25f, 4f)] public float ropeTightness = 1f;
+        [Range(1, 30)] public int iterationCount = 4;
         public float3 globalForce = new float3(0f, -9.81f, 0f);
         public float3 localForce = new float3(0f, 0f, 0f);
 
+        [Header("Rope Setup")]
+        public Transform[] kinematicNodes;
+        public RopeNode[] nodes;
+        public RopeEdge[] edges;
+
         private Transform m_transform;
-        private RopeEdge[] m_edges;
+        private NativeArray<Vector3> m_positions;
         
-        public void Start() { 
-            Initialize();
+        private void Start() {
+            m_transform = transform;
+            for (int i = 0; i < nodes.Length; i++) nodes[i].Initialize();
+            SetupRope();
         }
         
-        public void Initialize() {
-            for (int i = 0; i < ropeNodes.Length; i++) ropeNodes[i].Initialize();
-            List<RopeEdge> edgeList = new List<RopeEdge>(24);
-            for (int i = 0; i < ropeNodes.Length; i++) {
-                VerletRopeNodeController ropeNodeController = ropeNodes[i];
-                for (int j = 0; j < ropeNodeController.connections.Length; j++) {
-                    VerletRopeNodeController connectedRopeNodeController = ropeNodeController.connections[j];
-                    edgeList.Add(new RopeEdge(ropeNodeController, connectedRopeNodeController));
-                }
-            }
-            m_edges = edgeList.ToArray();
-            m_transform = transform;
+        public void SetupRope(Transform[] _kinematicNodes, RopeNode[] _nodes, RopeEdge[] _edges) {
+            kinematicNodes = _kinematicNodes;
+            nodes = _nodes;
+            edges = _edges;
+            SetupRope();
+        }
+
+        public void SetupRope() {
+            lineRenderer.positionCount = edges.Length * 2;
+            m_positions = new NativeArray<Vector3>(edges.Length * 2, Allocator.Persistent);
         }
 
         public void Update() {
             quaternion rotation = m_transform.rotation;
-            for (int i = 0; i < ropeNodes.Length; i++) {
-                VerletRopeNodeController ropeNodeController = ropeNodes[i];
-                if (ropeNodeController.isKinematic) {
-                    ropeNodeController.UpdateKinematicPosition();
+            for (int i = 0; i < nodes.Length; i++) {
+                RopeNode node = nodes[i];
+                if (node.isKinematic) {
+                    node.position = kinematicNodes[node.kinematicNodeIndex].position;
+                    nodes[i] = node;
                     continue;
                 }
-                float3 positionBuffer = ropeNodeController.position;
-                float3 inertia = ropeNodeController.position - ropeNodeController.prevPosition;
+                float3 positionBuffer = node.position;
+                float3 inertia = node.position - node.prevPosition;
                 float3 forceVelocity = (globalForce + math.mul(rotation, localForce)) * (Time.deltaTime * Time.deltaTime * 0.5f);
-                ropeNodeController.position += inertia + forceVelocity;
-                ropeNodeController.prevPosition = positionBuffer;
+                node.position += inertia + forceVelocity;
+                node.prevPosition = positionBuffer;
+                nodes[i] = node;
             }
             for (int iteration = 0; iteration < iterationCount; iteration++) {
-                for (int i = 0; i < m_edges.Length; i++) {
-                    RopeEdge edge = m_edges[i];
-                    VerletRopeNodeController node0 = edge.node0, node1 = edge.node1;
+                for (int i = 0; i < edges.Length; i++) {
+                    RopeEdge edge = edges[i];
+                    int nodeIndex0 = edge.nodeIndex0, nodeIndex1 = edge.nodeIndex1;
+                    RopeNode node0 = nodes[nodeIndex0], node1 = nodes[nodeIndex1];
                     float3 edgePosition = (node0.position + node1.position) * 0.5f;
                     float3 edgeDirection = math.normalize(node0.position - node1.position);
                     if (!node0.isKinematic) {
                         node0.position = edgePosition + edgeDirection * edge.length * 0.5f * ropeTightness;
-                        node0.SetPosition();
+                        nodes[nodeIndex0] = node0;
                     }
                     if (!node1.isKinematic) {
                         node1.position = edgePosition - edgeDirection * edge.length * 0.5f * ropeTightness;
-                        node1.SetPosition();
+                        nodes[nodeIndex1] = node1;
                     }
                 }
             }
+            for (int i = 0; i < edges.Length; i++) {
+                RopeEdge edge = edges[i];
+                int nodeIndex0 = edge.nodeIndex0, nodeIndex1 = edge.nodeIndex1;
+                RopeNode node0 = nodes[nodeIndex0], node1 = nodes[nodeIndex1];
+                m_positions[i * 2] = node0.position;
+                m_positions[i * 2 + 1] = node1.position;
+            }
+            lineRenderer.SetPositions(m_positions);
         }
 
-#if UNITY_EDITOR
-        private List<Vector3> m_vertices;
-        public void OnDrawGizmos() {
-            m_vertices ??= new List<Vector3>(256);
-            m_vertices.Clear();
-            if (ropeNodes == null) return;
-            for (int i = 0; i < ropeNodes.Length; i++) {
-                VerletRopeNodeController ropeNode = ropeNodes[i];
-                if (!ropeNode) return;
-                if (ropeNode.connections == null) return;
-                for (int j = 0; j < ropeNode.connections.Length; j++) {
-                    VerletRopeNodeController connectionRopeNode = ropeNode.connections[j];
-                    if (!connectionRopeNode) return;
-                    m_vertices.Add(ropeNode.position);
-                    m_vertices.Add(connectionRopeNode.position);
-                }
-            }
-            for (int i = 0; i < m_vertices.Count - 1; i += 2) {
-                Gizmos.DrawLine(m_vertices[i], m_vertices[i + 1]);
-            }
-        }
-#endif
+// #if UNITY_EDITOR
+//         private List<Vector3> m_vertices;
+//         public void OnDrawGizmos() {
+//             m_vertices ??= new List<Vector3>(256);
+//             m_vertices.Clear();
+//             if (edges == null) return;
+//             for (int i = 0; i < edges.Length; i++) {
+//                 RopeEdge edge = edges[i];
+//                 int nodeIndex0 = edge.nodeIndex0, nodeIndex1 = edge.nodeIndex1;
+//                 RopeNode node0 = nodes[nodeIndex0], node1 = nodes[nodeIndex1];
+//                 Gizmos.DrawLine(node0.position, node1.position);
+//             }
+//         }
+// #endif
 
     }
 
