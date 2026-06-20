@@ -15,8 +15,8 @@ namespace GrandO.Generic.Editor {
         /// <summary>
         /// Saves any RenderTexture as PNG with proper linear → sRGB conversion.
         /// </summary>
-        public static void SaveToPNG(RenderTexture rt, string fullFilePath) {
-            if (rt == null) {
+        public static void SaveRenderTextureToPNG(RenderTexture rt, string fullFilePath) {
+            if (!rt) {
                 Debug.LogError("RenderTexture is null!");
                 return;
             }
@@ -55,11 +55,11 @@ namespace GrandO.Generic.Editor {
         [MenuItem("Assets/Save Selected RenderTexture as PNG", false, 20)]
         private static void MenuSaveSelected() {
             if (Selection.activeObject is RenderTexture rt) {
-                string defaultName = rt.name + ".png";
+                string defaultName = $"_{rt.name}.png";
                 string path = EditorUtility.SaveFilePanel("Save RenderTexture as PNG", "", defaultName, "png");
 
                 if (!string.IsNullOrEmpty(path)) {
-                    SaveToPNG(rt, path);
+                    SaveRenderTextureToPNG(rt, path);
                     if (path.StartsWith(Application.dataPath)) AssetDatabase.Refresh();
                 }
             } else {
@@ -67,30 +67,30 @@ namespace GrandO.Generic.Editor {
             }
         }
 
-        [MenuItem("Tools/RenderTexture Saver (Window)")]
-        private static void OpenWindow() { RenderTextureSaverWindow.ShowWindow(); }
+        // [MenuItem("Tools/RenderTexture Saver (Window)")]
+        // private static void OpenWindow() { RenderTextureSaverWindow.ShowWindow(); }
 
     }
 
-    public class RenderTextureSaverWindow : EditorWindow {
-        private RenderTexture rt;
-
-        public static void ShowWindow() { GetWindow<RenderTextureSaverWindow>("RT → PNG Saver"); }
-
-        private void OnGUI() {
-            GUILayout.Label("Drag & Drop RenderTexture here", EditorStyles.boldLabel);
-            rt = EditorGUILayout.ObjectField("Render Texture", rt, typeof(RenderTexture), true) as RenderTexture;
-
-            GUILayout.Space(10);
-            if (GUILayout.Button("Save as PNG", GUILayout.Height(40))) {
-                if (rt != null) {
-                    string path = EditorUtility.SaveFilePanel("Save PNG", "", $"_{rt.name}.png", "png");
-                    if (!string.IsNullOrEmpty(path)) RenderTextureSaver.SaveToPNG(rt, path);
-                } else {
-                    EditorUtility.DisplayDialog("Error", "No RenderTexture assigned!", "OK");
-                }
-            }
-        }
-    }
+    // public class RenderTextureSaverWindow : EditorWindow {
+    //     private RenderTexture rt;
+    //
+    //     public static void ShowWindow() { GetWindow<RenderTextureSaverWindow>("RT → PNG Saver"); }
+    //
+    //     private void OnGUI() {
+    //         GUILayout.Label("Drag & Drop RenderTexture here", EditorStyles.boldLabel);
+    //         rt = EditorGUILayout.ObjectField("Render Texture", rt, typeof(RenderTexture), true) as RenderTexture;
+    //
+    //         GUILayout.Space(10);
+    //         if (GUILayout.Button("Save as PNG", GUILayout.Height(40))) {
+    //             if (rt != null) {
+    //                 string path = EditorUtility.SaveFilePanel("Save PNG", "", $"_{rt.name}.png", "png");
+    //                 if (!string.IsNullOrEmpty(path)) RenderTextureSaver.SaveRenderTextureToPNG(rt, path);
+    //             } else {
+    //                 EditorUtility.DisplayDialog("Error", "No RenderTexture assigned!", "OK");
+    //             }
+    //         }
+    //     }
+    // }
 
 }
