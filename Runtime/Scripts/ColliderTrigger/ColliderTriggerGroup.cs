@@ -9,8 +9,18 @@ namespace GrandO.Generic {
         
         public event Action onTriggerGroupEnter;
         public event Action onTriggerGroupExit;
+
+        private ColliderTrigger[] m_colliderTriggers;
         
         private int m_triggeredCount = 0;
+
+        // this method cannot be called before RegisterTriggerGroup
+        public bool IsIntersect(Collider other) { 
+            for (int i = 0; i < m_colliderTriggers.Length; i++) {
+                if (m_colliderTriggers[i].IsIntersect(other)) return true;
+            }
+            return false;
+        }
 
         public void AddEnterListener(Action _onTriggerEnterAction) { 
             onTriggerGroupEnter += _onTriggerEnterAction;
@@ -21,15 +31,12 @@ namespace GrandO.Generic {
         }
 
         public void RegisterTriggerGroup(Action _onTriggerEnterAction, Action _onTriggerExitAction) {
+            m_colliderTriggers = GetComponentsInChildren<ColliderTrigger>(true);
+            for (int i = 0; i < m_colliderTriggers.Length; i++) {
+                m_colliderTriggers[i].RegisterTrigger(OnTriggerGroupEnter, OnTriggerGroupExit);
+            }
             AddEnterListener(_onTriggerEnterAction);
             AddExitListener(_onTriggerExitAction);
-        }
-
-        private void Start() { 
-            ColliderTrigger[] colliderTriggers = GetComponentsInChildren<ColliderTrigger>();
-            for (int i = 0; i < colliderTriggers.Length; i++) {
-                colliderTriggers[i].RegisterTrigger(OnTriggerGroupEnter, OnTriggerGroupExit);
-            }
         }
 
         private void OnTriggerGroupEnter(Collider other) {

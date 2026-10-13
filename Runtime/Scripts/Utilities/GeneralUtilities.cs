@@ -143,6 +143,14 @@ namespace GrandO.Generic {
 				child.gameObject.SetLayerRecursively(_layer);
 			}
 		}
+		
+		public static bool IsIntersect(this Collider a, Collider b) {
+			if (!a.bounds.Intersects(b.bounds)) return false;
+			a.transform.GetPositionAndRotation(out Vector3 aPos, out Quaternion aRot);
+			b.transform.GetPositionAndRotation(out Vector3 bPos, out Quaternion bRot);
+			if (!Physics.ComputePenetration(a, aPos, aRot, b, bPos, bRot, out _, out float distance)) return false;
+			return distance > Physics.defaultContactOffset;
+		}
 
 	}
 
